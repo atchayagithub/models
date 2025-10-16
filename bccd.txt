@@ -1,0 +1,108 @@
+import tensorflow as tf
+import tensorflow_datasets as tfds
+import matplotlib.pyplot as plt
+from tensorflow.keras import layers, models
+
+# a. Load the dataset (no as_supervised)
+(train_ds, val_ds), ds_info = tfds.load(
+    'bccd',
+    split=['train', 'test'],
+    with_info=True
+)
+
+# Helper: extract first class label for demo classification
+def extract_label(example):
+    # Use tf.cond for graph compatibility
+    labels = example['objects']['label']
+    label = tf.cond(
+        tf.size(labels) > 0,
+        lambda: labels[0],
+        lambda: tf.constant(0, dtype=labels.dtype)
+    )
+    return example['image'], label
+
+train_ds = train_ds.map(extract_label)
+val_ds = val_ds.map(extract_label)
+
+# b. Show the number of training and testing images
+print("Training samples:", ds_info.splits['train'].num_examples)
+print("Testing samples:", ds_info.splits['test'].num_examples)
+
+# c. Plot some images
+plt.figure(figsize=(6,6))
+for i, (img, label) in enumerate(train_ds.take(9)):
+    plt.subplot(3,3,i+1)
+    plt.imshow(img)
+    plt.title(str(label.numpy()))
+    plt.axis('off')
+plt.show()
+
+# d. Image Augmentation – contrast, flipping, rotation
+data_augmentation = tf.keras.Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomContrast(0.2),
+    layers.RandomRotation(0.1)
+])
+
+def augment(image, label):
+    image = data_augmentation(image)
+    return image, label
+
+aug_train_ds = train_ds.map(augment)
+
+# e. After augmentation, show the number of images (unchanged)
+print("Training samples after augmentation:", ds_info.splits['train'].num_examples)
+
+# f. Normalize the training data
+def normalize(image, label):
+    image = tf.cast(image, tf.float32) / 255.0
+    return image, label
+
+train_ds_norm = train_ds.map(normalize).batch(32).prefetch(1)
+aug_train_ds_norm = aug_train_ds.map(normalize).batch(32).prefetch(1)
+val_ds_norm = val_ds.map(normalize).batch(32).prefetch(1)
+
+# g. Build a simple CNN for training (before augmentation)
+cnn_model = models.Sequential([
+    layers.InputLayer(input_shape=(None, None, 3)),
+    layers.Resizing(128,128),
+    layers.Conv2D(32, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Conv2D(64, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Flatten(),
+    layers.Dense(64, activation='relu'),
+    layers.Dense(3, activation='softmax')  # 3 classes: WBC, RBC, Platelets
+])
+
+cnn_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+# h. Train and show accuracy (before augmentation)
+history = cnn_model.fit(train_ds_norm, validation_data=val_ds_norm, epochs=5)
+print("Train accuracy (no augmentation):", history.history['accuracy'][-1])
+print("Test accuracy (no augmentation):", history.history['val_accuracy'][-1])
+
+# i. Build a CNN for training (after augmentation)
+cnn_model_aug = models.Sequential([
+    layers.InputLayer(input_shape=(None, None, 3)),
+    layers.Resizing(128,128),
+    layers.Conv2D(32, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Conv2D(64, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Flatten(),
+    layers.Dense(64, activation='relu'),
+    layers.Dense(3, activation='softmax')
+])
+
+cnn_model_aug.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+# j. Train and show accuracy (after augmentation)
+history_aug = cnn_model_aug.fit(aug_train_ds_norm, validation_data=val_ds_norm, epochs=5)
+print("Train accuracy (with augmentation):", history_aug.history['accuracy'][-1])
+print("Test accuracy (with augmentation):", history_aug.history['val_accuracy'][-1])
+
+# k. Compare the training and testing accuracy before and after augmentation
+print("Accuracy comparison:")
+print("No augmentation - Train:", history.history['accuracy'][-1], "Test:", history.history['val_accuracy'][-1])
+print("With augmentation - Train:", history_aug.history['accuracy'][-1], "Test:", history_aug.history['val_accuracy'][-1])
