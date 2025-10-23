@@ -1,0 +1,46 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.metrics import confusion_matrix, classification_report
+
+# Paths
+val_dir = 'coffee_leaf/val/'
+
+# Load model (saved .hdf5 file)
+model = load_model('densenet121_coffee_leaf.hdf5')
+
+# Validation data generator (only rescaling)
+val_datagen = ImageDataGenerator(rescale=1./255)
+val_generator = val_datagen.flow_from_directory(
+    val_dir,
+    target_size=(224, 224),
+    batch_size=32,
+    class_mode='categorical',
+    shuffle=False
+)
+
+# Evaluate model on validation data
+val_loss, val_acc = model.evaluate(val_generator, steps=len(val_generator))
+print(f'Validation Loss: {val_loss:.4f}')
+print(f'Validation Accuracy: {val_acc:.4f}')
+
+# Predict classes for validation data
+Y_pred = model.predict(val_generator, steps=len(val_generator))
+y_pred = np.argmax(Y_pred, axis=1)
+
+# Confusion matrix and classification report
+cm = confusion_matrix(val_generator.classes, y_pred)
+class_labels = list(val_generator.class_indices.keys())
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=class_labels, yticklabels=class_labels)
+plt.title('Confusion Matrix - DenseNet121')
+plt.ylabel('True Label')
+plt.xlabel('Predicted Label')
+plt.show()
+
+print('\nClassification Report:\n')
+print(classification_report(val_generator.classes, y_pred, target_names=class_labels))
